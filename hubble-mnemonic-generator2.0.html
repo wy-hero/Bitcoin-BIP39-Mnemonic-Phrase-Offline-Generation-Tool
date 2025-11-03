@@ -558,28 +558,27 @@ button:disabled:hover {
 }
 
 .actions button {
-  flex: 1;
-  min-width: 0;
-  width: calc(50% - 0.375rem);
+  width: 100%;
 }
 
 /* 大屏幕上按钮布局优化 */
 @media (min-width: 1025px) {
   .actions button {
-    width: calc(50% - 0.375rem);
+    width: 100%;
   }
 }
 
 #btn-clear {
-  background: var(--secondary);
-  color: var(--secondary-text);
-  border: 1px solid var(--secondary-border);
-}
-
-[data-theme="dark"] #btn-clear {
-  background: var(--secondary);
-  color: var(--secondary-text);
-  border: 1px solid var(--secondary-border);
+  background: linear-gradient(to right, var(--primary-gradient-start), var(--primary-gradient-end));
+  padding: 0.85rem 2rem;
+  font-size: 1.05rem;
+  margin: 1rem 0;
+  width: 100%;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 4px 6px -1px rgba(247, 147, 26, 0.3), 0 2px 4px -1px rgba(247, 147, 26, 0.2);
 }
 
 footer {
@@ -770,6 +769,12 @@ a:hover {
   }
   
   #btn-generate {
+    padding: 0.9rem 1.5rem;
+    font-size: 1rem;
+    margin: 1rem 0;
+  }
+  
+  #btn-clear {
     padding: 0.9rem 1.5rem;
     font-size: 1rem;
     margin: 1rem 0;
@@ -1493,7 +1498,6 @@ a:hover {
 
 <div class="actions">
 <button id="btn-clear">清除</button>
-<button id="btn-download" data-text="下载源码 (HTML)">下载源码 (HTML)</button>
 </div>
 
 <div class="address-section" id="address-section" style="display: none;">
@@ -1739,7 +1743,6 @@ const shaDisplay=document.getElementById("sha256-display");
 const btnGenerate=document.getElementById("btn-generate");
 const mnemonicDiv=document.getElementById("mnemonic");
 const btnClear=document.getElementById("btn-clear");
-const btnDownload=document.getElementById("btn-download");
 const btn12=document.getElementById("btn-12");
 const btn24=document.getElementById("btn-24");
 const addressSection=document.getElementById("address-section");
@@ -2258,36 +2261,36 @@ async function deriveChildKey(parentKey, parentChainCode, index, hardened = fals
   return { key: actualKey, chainCode: childChainCode };
 }
 
-// BIP44: 派生路径 m/44'/0'/0'/0/0
-async function deriveBIP44Key(seed, account = 0, change = 0, addressIndex = 0) {
+// BIP84: 派生路径 m/84'/0'/0'/0/0 (Native SegWit P2WPKH)
+async function deriveBIP84Key(seed, account = 0, change = 0, addressIndex = 0) {
   const master = await deriveMasterKey(seed);
   
-  // m/44'
+  // m/84'
   let key = master.key;
   let chainCode = master.chainCode;
-  const step1 = await deriveChildKey(key, chainCode, 44, true);
+  const step1 = await deriveChildKey(key, chainCode, 84, true);
   // 清零上一步的key（不再需要）
   key.fill(0);
   
-  // m/44'/0'
+  // m/84'/0'
   key = step1.key;
   chainCode = step1.chainCode;
   const step2 = await deriveChildKey(key, chainCode, 0, true);
   key.fill(0);
   
-  // m/44'/0'/0'
+  // m/84'/0'/0'
   key = step2.key;
   chainCode = step2.chainCode;
   const step3 = await deriveChildKey(key, chainCode, account, true);
   key.fill(0);
   
-  // m/44'/0'/0'/0
+  // m/84'/0'/0'/0
   key = step3.key;
   chainCode = step3.chainCode;
   const step4 = await deriveChildKey(key, chainCode, change, false);
   key.fill(0);
   
-  // m/44'/0'/0'/0/0
+  // m/84'/0'/0'/0/0
   key = step4.key;
   chainCode = step4.chainCode;
   const step5 = await deriveChildKey(key, chainCode, addressIndex, false);
@@ -2309,8 +2312,8 @@ async function generateBitcoinAddress(mnemonic) {
     // 1. BIP39: 从助记词生成种子
     seed = await mnemonicToSeed(mnemonic);
     
-    // 2. BIP44: 派生私钥 (m/44'/0'/0'/0/0)
-    privateKey = await deriveBIP44Key(seed, 0, 0, 0);
+    // 2. BIP84: 派生私钥 (m/84'/0'/0'/0/0) - Native SegWit P2WPKH
+    privateKey = await deriveBIP84Key(seed, 0, 0, 0);
     
     // 3. 从私钥生成公钥
     const publicKey = privateKeyToPublicKey(privateKey);
@@ -2510,51 +2513,6 @@ btnClear.addEventListener("click",()=>{
   setTimeout(() => {
     mnemonicDiv.classList.remove('cleared');
   }, 500);
-});
-
-btnDownload.addEventListener("click",()=>{
-  showLoading(btnDownload);
-  
-  setTimeout(() => {
-    // 克隆整个文档以修改下载内容，不影响当前显示
-    const clonedDoc = document.documentElement.cloneNode(true);
-    
-    // 在克隆的文档中找到助记词容器并清空
-    const clonedMnemonicDiv = clonedDoc.querySelector('#mnemonic');
-    if (clonedMnemonicDiv) {
-      clonedMnemonicDiv.textContent = '';
-      clonedMnemonicDiv.innerHTML = '';
-    }
-    
-    // 在克隆的文档中隐藏地址部分
-    const clonedAddressSection = clonedDoc.querySelector('#address-section');
-    if (clonedAddressSection) {
-      clonedAddressSection.style.display = 'none';
-      const clonedAddressInput = clonedDoc.querySelector('#btc-address');
-      if (clonedAddressInput) {
-        clonedAddressInput.value = '';
-      }
-    }
-    
-    // 生成HTML字符串
-    const html = clonedDoc.outerHTML;
-    const blob = new Blob([html], {type:"text/html"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "hubble-mnemonic-generator.html";
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    hideLoading(btnDownload);
-    
-    const originalText = btnDownload.textContent;
-    btnDownload.textContent = "✓ 已下载";
-    
-    setTimeout(() => {
-      btnDownload.textContent = originalText;
-    }, 2000);
-  }, 300);
 });
 
 // 复制地址按钮功能
