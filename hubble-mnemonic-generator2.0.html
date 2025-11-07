@@ -2770,8 +2770,7 @@ async function deriveBIP84Key(seed, account = 0, change = 0, addressIndex = 0) {
   return step5.key;
 }
 
-// ========== 使用标准库的比特币地址生成实现 ==========
-// 使用 @scure/bip39, @scure/bip32, @noble/hashes, @scure/base 替换手写实现
+// ========== 完整的比特币地址生成实现（纯本地） ==========
 
 /** 将 8bit 字节转换为 5bit（Bech32 用） */
 function convertBits(data, from = 8, to = 5, pad = true) {
@@ -2798,12 +2797,10 @@ function convertBits(data, from = 8, to = 5, pad = true) {
   return Uint8Array.from(out);
 }
 
-// 地址生成实现（本地优先，可选CDN校验）
+// 地址生成实现（完全离线）
 let p2wpkhFromMnemonic = null;
 let localImplementationReady = false;
 let localValidated = false;
-let scureAttempted = false;
-let scureChecker = null;
 
 async function computeAddressLocal(mnemonic, passphrase = '', account = 0, change = 0, index = 0) {
   // 1. BIP39: 从助记词生成种子
@@ -2876,73 +2873,17 @@ async function ensureLocalAddressImplementation() {
   localImplementationReady = true;
 }
 
-async function tryLoadScureLibrariesInBackground() {
-  if (scureAttempted) return;
-  scureAttempted = true;
-
-  const scureEntry = 'https://esm.sh/v135/@scure/bip39@1.2.0?bundle&deps=@scure/bip32@1.3.0,@scure/base@1.1.3,@noble/hashes@1.3.3';
-
-  try {
-    const module = await import(scureEntry);
-    const { mnemonicToSeedSync, validateMnemonic } = module;
-    const { HDKey } = module;
-    const { sha256 } = module;
-    const { ripemd160 } = module;
-    const { bech32 } = module;
-
-    const hash160 = (pubkey) => ripemd160(sha256(pubkey));
-
-    const scureFn = (mnemonic, passphrase = '', account = 0, change = 0, index = 0) => {
-      if (!validateMnemonic(mnemonic)) {
-        throw new Error('Invalid BIP39 mnemonic');
-      }
-      const seed = mnemonicToSeedSync(mnemonic, passphrase);
-      const root = HDKey.fromMasterSeed(seed);
-      const path = `m/84'/0'/${account}'/${change}/${index}`;
-      const child = root.derive(path);
-      if (!child.publicKey) {
-        throw new Error('Failed to derive public key');
-      }
-      const prog = hash160(child.publicKey);
-      const words = convertBits(prog, 8, 5, true);
-      const bechWords = new Uint8Array(1 + words.length);
-      bechWords[0] = 0;
-      bechWords.set(words, 1);
-      seed.fill(0);
-      if (child.privateKey) child.privateKey.fill(0);
-      return bech32.encode('bc', bechWords).toLowerCase();
-    };
-
-    scureChecker = scureFn;
-    console.log('✓ CDN 校验库已加载（仅用于结果核对）');
-  } catch (error) {
-    console.warn('CDN 校验库加载失败（忽略，保持离线模式）:', error?.message || error);
-  }
+async function loadAddressGenerationLibraries() {
+  await ensureLocalAddressImplementation();
 }
 
 // 生成比特币P2WPKH地址（SegWit/Bech32格式）
 // 根据BIP84规范：路径 m/84'/0'/0'/0/0
-// 本地实现为主，可选CDN校验
+// 本地实现
 async function generateBitcoinAddress(mnemonic, passphrase = '') {
   await ensureLocalAddressImplementation();
 
-  // 在后台尝试加载 CDN 校验，实现“本地优先 + CDN 兜底”
-  tryLoadScureLibrariesInBackground();
-
   const address = await p2wpkhFromMnemonic(mnemonic, passphrase, 0, 0, 0);
-
-  if (scureChecker) {
-    try {
-      const scureAddress = scureChecker(mnemonic, passphrase, 0, 0, 0);
-      if (scureAddress !== address) {
-        console.error('本地实现与 CDN 校验结果不一致:', { local: address, scure: scureAddress });
-        throw new Error('地址校验失败：本地与 CDN 结果不一致');
-      }
-    } catch (checkerError) {
-      console.error('CDN 校验过程出现异常:', checkerError);
-    }
-  }
-
   return address;
 }
 
